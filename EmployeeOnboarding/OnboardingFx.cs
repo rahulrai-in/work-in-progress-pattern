@@ -17,6 +17,7 @@ public static class OnboardingFx
         var workDocDetails = context.GetInput<DocumentProperties>();
         context.SetCustomStatus("Waiting for feedback");
 
+        // Wait for events that complete the work document.
         var interviewTask =
             context.WaitForExternalEventAndSetCustomStatus<InterviewFeedback>(nameof(InterviewFeedback),
                 "Interview feedback collected");
@@ -29,8 +30,10 @@ public static class OnboardingFx
             context.WaitForExternalEventAndSetCustomStatus<ContractFeedback>(nameof(ContractFeedback),
                 "Contract feedback collected");
 
+        // Wait until we have all the required information of the work document
         await Task.WhenAll(interviewTask, backgroundCheckTask, contractTask);
 
+        // Inform the approver that we have a document ready for submission
         await context.CallActivityAsync<bool>(
             nameof(SubmitDocument),
             new WorkDocument(
@@ -41,6 +44,7 @@ public static class OnboardingFx
 
         context.SetCustomStatus("Awaiting submission");
 
+        // Record whether the approver accepted or rejected the document.
         var isSubmissionApproved = await context.WaitForExternalEvent<bool>("SubmissionApproval");
 
         context.SetCustomStatus("Submitted document");
@@ -57,7 +61,7 @@ public static class OnboardingFx
             "Work doc details: {Properties}. Interview feedback {InterviewFeedback}. Background check feedback {BackgroundCheckFeedback}. Contract feedback: {ContractFeedback}",
             result.Properties, result.InterviewFeedback, result.BackgroundCheckFeedback, result.ContractFeedback);
 
-        // Placeholder for code to inform the approver with details.
+        // Placeholder for code to inform the approver with document details.
 
         return true;
     }
@@ -80,16 +84,19 @@ public static class OnboardingFx
         var tcs = new TaskCompletionSource<T>();
         var waitForEventTask = context.WaitForExternalEvent<T>(name);
 
+        // Chains a task that sets a custom status message once the event is complete
         waitForEventTask.ContinueWith(t =>
             {
                 context.SetCustomStatus(statusMessage);
                 tcs.SetResult(t.Result);
             }, TaskContinuationOptions.ExecuteSynchronously
         );
+
         return tcs.Task;
     }
 }
 
+// Metadata of work document
 public record DocumentProperties(string Title, DateTimeOffset CreatedDate, string Creator, string ApplicationId);
 
 public record InterviewFeedback(string Feedback, bool IsPassed);
@@ -98,5 +105,6 @@ public record BackgroundCheckFeedback(string Feedback, bool IsPassed);
 
 public record ContractFeedback(string Feedback, bool IsPassed);
 
+// Work document
 public record WorkDocument(DocumentProperties Properties, InterviewFeedback InterviewFeedback,
     BackgroundCheckFeedback BackgroundCheckFeedback, ContractFeedback ContractFeedback);
