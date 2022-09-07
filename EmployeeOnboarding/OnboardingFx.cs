@@ -17,37 +17,27 @@ public static class OnboardingFx
         var workDocDetails = context.GetInput<DocumentProperties>();
         context.SetCustomStatus("Waiting for feedback");
 
-        var interviewTask = context.WaitForExternalEvent<InterviewFeedback>("InterviewFeedbackResponse")
-            .ContinueWith(task =>
-            {
-                context.SetCustomStatus("Interview feedback collected");
-                return task;
-            });
+        var interviewTask =
+            context.WaitForExternalEventAndSetCustomStatus<InterviewFeedback>(nameof(InterviewFeedback),
+                "Interview feedback collected");
 
-        var backgroundCheckTask = context.WaitForExternalEvent<BackgroundCheckFeedback>("BackgroundFeedbackResponse")
-            .ContinueWith(task =>
-            {
-                context.SetCustomStatus("Background check feedback collected");
-                return task;
-            });
+        var backgroundCheckTask =
+            context.WaitForExternalEventAndSetCustomStatus<BackgroundCheckFeedback>(nameof(BackgroundCheckFeedback),
+                "Background check feedback collected");
 
-        var contractTask = context.WaitForExternalEvent<ContractFeedback>("ContractFeedbackResponse")
-            .ContinueWith(task =>
-            {
-                context.SetCustomStatus("Contract feedback collected");
-                return task;
-            });
+        var contractTask =
+            context.WaitForExternalEventAndSetCustomStatus<ContractFeedback>(nameof(ContractFeedback),
+                "Contract feedback collected");
 
         await Task.WhenAll(interviewTask, backgroundCheckTask, contractTask);
 
         await context.CallActivityAsync<bool>(
             nameof(SubmitDocument),
-            (
+            new WorkDocument(
                 workDocDetails,
-                await interviewTask.Result,
-                await backgroundCheckTask.Result,
-                await contractTask.Result
-            ));
+                await interviewTask,
+                await backgroundCheckTask,
+                await contractTask));
 
         context.SetCustomStatus("Awaiting submission");
 
@@ -61,14 +51,11 @@ public static class OnboardingFx
     }
 
     [FunctionName(nameof(SubmitDocument))]
-    public static bool SubmitDocument(
-        [ActivityTrigger]
-        (DocumentProperties workDocDetails, InterviewFeedback interviewFeedback, BackgroundCheckFeedback
-            backgroundFeedback,
-            ContractFeedback contractFeedback) result, ILogger log)
+    public static bool SubmitDocument([ActivityTrigger] WorkDocument result, ILogger log)
     {
         log.LogInformation(
-            $"Work doc details: {result.workDocDetails}. Interview feedback {result.interviewFeedback}. Background check feedback {result.backgroundFeedback}. Contract feedback: {result.contractFeedback}");
+            "Work doc details: {Properties}. Interview feedback {InterviewFeedback}. Background check feedback {BackgroundCheckFeedback}. Contract feedback: {ContractFeedback}",
+            result.Properties, result.InterviewFeedback, result.BackgroundCheckFeedback, result.ContractFeedback);
 
         // Placeholder for code to inform the approver with details.
 
@@ -85,6 +72,21 @@ public static class OnboardingFx
         var data = await req.Content.ReadAsAsync<DocumentProperties>();
         var instanceId = await starter.StartNewAsync(nameof(StartWorkflow), data);
         return starter.CreateCheckStatusResponse(req, instanceId);
+    }
+
+    public static Task<T> WaitForExternalEventAndSetCustomStatus<T>(
+        this IDurableOrchestrationContext context, string name, string statusMessage)
+    {
+        var tcs = new TaskCompletionSource<T>();
+        var waitForEventTask = context.WaitForExternalEvent<T>(name);
+
+        waitForEventTask.ContinueWith(t =>
+            {
+                context.SetCustomStatus(statusMessage);
+                tcs.SetResult(t.Result);
+            }, TaskContinuationOptions.ExecuteSynchronously
+        );
+        return tcs.Task;
     }
 }
 
