@@ -1,10 +1,14 @@
 using System;
+using System.Net;
 using System.Net.Http;
+using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.DurableTask;
 using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 
 namespace EmployeeOnboarding;
 
@@ -76,6 +80,34 @@ public static class OnboardingFx
         var data = await req.Content.ReadAsAsync<DocumentProperties>();
         var instanceId = await starter.StartNewAsync(nameof(StartWorkflow), data);
         return starter.CreateCheckStatusResponse(req, instanceId);
+    }
+
+    [FunctionName(nameof(GetInstances))]
+    public static async Task<HttpResponseMessage> GetInstances(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get")]
+        HttpRequestMessage req,
+        [DurableClient] IDurableOrchestrationClient client,
+        ILogger log)
+    {
+        var filter = new OrchestrationStatusQueryCondition
+        {
+            RuntimeStatus = new[]
+            {
+                OrchestrationRuntimeStatus.Pending,
+                OrchestrationRuntimeStatus.Running
+            },
+            CreatedTimeFrom = DateTime.UtcNow.Subtract(TimeSpan.FromDays(7)),
+            PageSize = 100
+        };
+
+        var result = await client.ListInstancesAsync(filter, CancellationToken.None);
+        var response = req.CreateResponse(HttpStatusCode.OK);
+        response.Content = new StringContent(
+            JsonConvert.SerializeObject(result.DurableOrchestrationState),
+            Encoding.UTF8,
+            "application/json");
+
+        return response;
     }
 
     public static Task<T> WaitForExternalEventAndSetCustomStatus<T>(
