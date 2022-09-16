@@ -1,14 +1,12 @@
 using System;
-using System.Net;
 using System.Net.Http;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.DurableTask;
 using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 
 namespace EmployeeOnboarding;
 
@@ -83,7 +81,7 @@ public static class OnboardingFx
     }
 
     [FunctionName(nameof(GetInstances))]
-    public static async Task<HttpResponseMessage> GetInstances(
+    public static async Task<IActionResult> GetInstances(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get")]
         HttpRequestMessage req,
         [DurableClient] IDurableOrchestrationClient client,
@@ -101,14 +99,9 @@ public static class OnboardingFx
         };
 
         var result = await client.ListInstancesAsync(filter, CancellationToken.None);
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        response.Content = new StringContent(
-            JsonConvert.SerializeObject(result.DurableOrchestrationState),
-            Encoding.UTF8,
-            "application/json");
-
-        return response;
+        return new OkObjectResult(result.DurableOrchestrationState);
     }
+
 
     public static Task<T> WaitForExternalEventAndSetCustomStatus<T>(
         this IDurableOrchestrationContext context, string name, string statusMessage)
